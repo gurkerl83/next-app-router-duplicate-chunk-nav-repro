@@ -1,0 +1,24 @@
+{
+  "name": "next-app-router-duplicate-chunk-nav-repro",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm generate:ballast && next dev",
+    "build": "pnpm generate:ballast && next build",
+    "start": "next start",
+    "generate:ballast": "node scripts/generate-ballast.mjs",
+    "analyze": "pnpm next experimental-analyze"
+  },
+  "dependencies": {
+    "next": "16.2.1-canary.33",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "6.0.2"
+  }
+}
