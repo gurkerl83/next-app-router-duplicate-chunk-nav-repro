@@ -17,16 +17,19 @@ This document tracks attempted fixes, measured results, and verification steps f
 During client-side navigation, every route-specific JavaScript chunk is fetched **twice** over the network. Two independent code paths both create `<script>` tags for the same chunk URL, and their deduplication mechanisms fail to detect each other's scripts in the DOM.
 
 **Path A** (Turbopack chunk loader): The RSC stream's `"I"` instruction triggers `preloadModule` → `loadChunkByUrl` → `doLoadChunk`, which creates:
+
 ```html
 <script src="/_next/chunks/abc123.js"></script>
 ```
 
 **Path B** (React DOM Float system): The RSC stream's component output contains `<script async>` elements rendered by `createComponentStylesAndScripts`. React DOM's Float system intercepts these and calls `preinitScript`, which checks the DOM with:
+
 ```javascript
-document.querySelector('script[async][src="/_next/chunks/abc123.js"]')
+document.querySelector('script[async][src="/_next/chunks/abc123.js"]');
 ```
 
 This selector **requires the `[async]` attribute**. Path A's script does not have it. The selector returns `null`. React DOM concludes no such script exists and creates a second one:
+
 ```html
 <script async="" src="/_next/chunks/abc123.js"></script>
 ```
@@ -42,6 +45,7 @@ This selector **requires the `[async]` attribute**. Path A's script does not hav
 **Location**: Inside `doLoadChunk()`, the script element creation block (line ~211)
 
 **Before** (original code):
+
 ```typescript
 } else {
   const script = document.createElement('script')
@@ -58,6 +62,7 @@ This selector **requires the `[async]` attribute**. Path A's script does not hav
 ```
 
 **After** (patched code):
+
 ```typescript
 } else {
   const script = document.createElement('script')
@@ -80,6 +85,7 @@ This selector **requires the `[async]` attribute**. Path A's script does not hav
 ```
 
 **Diff** (single line addition):
+
 ```diff
   const script = document.createElement('script')
   script.src = chunkUrl
@@ -137,8 +143,9 @@ The selector `script[async][src="URL"]` is a CSS attribute selector. `[async]` m
 #### 3. Turbopack's Own Selector Is Broader
 
 Turbopack's `doLoadChunk` checks for existing scripts with:
+
 ```javascript
-document.querySelectorAll(`script[src="${chunkUrl}"]`)
+document.querySelectorAll(`script[src="${chunkUrl}"]`);
 ```
 
 This selector does **not** require `[async]`. It would find React DOM's scripts. But because `"I"` instructions are flushed before component content in the RSC stream, Turbopack always creates its script first. React DOM comes second and can't find Turbopack's script.
@@ -146,13 +153,15 @@ This selector does **not** require `[async]`. It would find React DOM's scripts.
 #### 4. After the Fix
 
 With `script.async = true`, Turbopack creates:
+
 ```html
 <script async="" src="/_next/chunks/abc123.js"></script>
 ```
 
 Now when React DOM's Float system runs:
+
 ```javascript
-document.querySelector('script[async][src="/_next/chunks/abc123.js"]')
+document.querySelector('script[async][src="/_next/chunks/abc123.js"]');
 ```
 
 It **finds** Turbopack's script. It skips creating a duplicate. One network request instead of two.
@@ -185,12 +194,14 @@ Confirm the timestamp is **after** the patch was applied. The binary should be ~
 #### Step 3 — Run the repro app with the patched binary
 
 For production build:
+
 ```bash
 cd /Users/markusgritsch/Development/Topics/Millipede/Project/OSS-Projects/contributions/next-app-router-duplicate-chunk-nav-repro
 NEXT_TEST_NATIVE_DIR=/Users/markusgritsch/Development/Topics/Millipede/Project/OSS-Projects/contributions/next.js/packages/next-swc/native pnpm next build
 ```
 
 For dev mode:
+
 ```bash
 cd /Users/markusgritsch/Development/Topics/Millipede/Project/OSS-Projects/contributions/next-app-router-duplicate-chunk-nav-repro
 NEXT_TEST_NATIVE_DIR=/Users/markusgritsch/Development/Topics/Millipede/Project/OSS-Projects/contributions/next.js/packages/next-swc/native pnpm next dev
@@ -207,6 +218,7 @@ NEXT_TEST_NATIVE_DIR=/Users/markusgritsch/Development/Topics/Millipede/Project/O
 #### Binding Resolution Note
 
 The repro project uses pnpm with a `file:` dependency:
+
 ```json
 "next": "file:/Users/markusgritsch/Development/Topics/Millipede/Project/OSS-Projects/contributions/next.js/packages/next"
 ```
@@ -215,23 +227,18 @@ pnpm copies the package into its `.pnpm/` store rather than symlinking. From tha
 
 The `NEXT_TEST_NATIVE_DIR` environment variable (handled at line 1520-1536 of `packages/next/src/build/swc/index.ts`) bypasses all resolution logic and loads the `.node` file directly by absolute path.
 
-To verify which binary is loaded, use:
-```bash
-node scripts/verify-binding.mjs
-```
-
 ---
 
 ### Measured Results
 
 > TODO: Fill in after rebuilding and testing
 
-| Metric | Before Fix | After Fix |
-|--------|-----------|-----------|
-| Network requests per navigation (route chunks) | 2x per chunk | |
-| Total JS transferred per navigation | | |
-| Time to interactive after navigation | | |
-| Duplicate `<script>` tags in DOM | Yes | |
+| Metric                                         | Before Fix   | After Fix |
+| ---------------------------------------------- | ------------ | --------- |
+| Network requests per navigation (route chunks) | 2x per chunk |           |
+| Total JS transferred per navigation            |              |           |
+| Time to interactive after navigation           |              |           |
+| Duplicate `<script>` tags in DOM               | Yes          |           |
 
 ---
 
@@ -244,6 +251,7 @@ node scripts/verify-binding.mjs
 **Scope**: Applies to both `next dev` and `next build` with Turbopack. The same `runtime-backend-dom.ts` is used for `RuntimeType::Development` and `RuntimeType::Production` (confirmed in `browser_runtime.rs`, lines 70-76). Does not affect webpack builds.
 
 ---
+
 ---
 
 ## Option B: Stop Emitting `<script async>` During Navigation
@@ -273,10 +281,10 @@ for (const href of jsHrefs) {
     createElement('script', {
       src: `${ctx.assetPrefix}/_next/${encodeURIPath(href)}${getAssetQueryString(ctx, true)}`,
       async: true,
-      key: `script-${scriptIndex}`,
+      key: `script-${scriptIndex}`
     })
-  )
-  scriptIndex++
+  );
+  scriptIndex++;
 }
 ```
 
@@ -290,10 +298,10 @@ if (!ctx.isNavigationRequest) {
       createElement('script', {
         src: `${ctx.assetPrefix}/_next/${encodeURIPath(href)}${getAssetQueryString(ctx, true)}`,
         async: true,
-        key: `script-${scriptIndex}`,
+        key: `script-${scriptIndex}`
       })
-    )
-    scriptIndex++
+    );
+    scriptIndex++;
   }
 }
 ```
@@ -317,6 +325,7 @@ Option A patches the symptom — it makes two redundant load paths coexist by al
 **Medium risk**. The change is straightforward in concept but touches the server rendering pipeline for all App Router pages. Requires careful testing across full-page loads, navigation, streaming, static generation, and prefetching to ensure scripts are emitted when needed and omitted when redundant.
 
 ---
+
 ---
 
 ## Option C: Client-Side Navigation Deduplication
@@ -349,8 +358,8 @@ export function createFromNextReadableStream<T>(
     callServer,
     findSourceMapURL,
     debugChannel: createDebugChannel && createDebugChannel(requestHeaders),
-    unstable_allowPartialStream: options?.allowPartialStream,
-  })
+    unstable_allowPartialStream: options?.allowPartialStream
+  });
 }
 ```
 
@@ -371,6 +380,7 @@ This is architecturally fragile, introduces tight coupling between subsystems, a
 **High risk**. Timing-sensitive coordination between independent subsystems. Potential for subtle race conditions. Maintenance burden from coupling Flight and Float internals.
 
 ---
+
 ---
 
 ## Option D: Broaden React DOM's `querySelector` (Upstream React)
@@ -395,11 +405,15 @@ The change would be in the `preinitScript` dispatcher, specifically the `ft()` f
 
 ```javascript
 // Current (React DOM compiled output)
-ft = function(e) { return "script[async]" + e }
+ft = function (e) {
+  return 'script[async]' + e;
+};
 // Selector: script[async][src="URL"]
 
 // Proposed
-ft = function(e) { return "script" + e }
+ft = function (e) {
+  return 'script' + e;
+};
 // Selector: script[src="URL"]
 ```
 
@@ -418,15 +432,16 @@ Removing `[async]` could cause Float to skip creating an async script when a syn
 **Low technical risk, high process risk**. The code change itself is trivial and correct for the Next.js/Turbopack use case. But it requires buy-in from the React core team, and the `[async]` filter may protect against edge cases in other React consumers that don't use Turbopack.
 
 ---
+
 ---
 
 ## Fix Priority Summary
 
-| Option | Complexity | Risk | Scope | Recommendation |
-|--------|-----------|------|-------|----------------|
-| **A: `script.async = true`** | One line | None | Turbopack runtime | **Ship immediately** |
-| **B: Skip scripts during navigation** | Medium | Medium | Next.js server render | **Follow-up PR** |
-| **C: Client-side dedup** | High | High | Next.js client | Not recommended |
-| **D: Broaden React selector** | Trivial | Process | React upstream | Propose to React team |
+| Option                                | Complexity | Risk    | Scope                 | Recommendation        |
+| ------------------------------------- | ---------- | ------- | --------------------- | --------------------- |
+| **A: `script.async = true`**          | One line   | None    | Turbopack runtime     | **Ship immediately**  |
+| **B: Skip scripts during navigation** | Medium     | Medium  | Next.js server render | **Follow-up PR**      |
+| **C: Client-side dedup**              | High       | High    | Next.js client        | Not recommended       |
+| **D: Broaden React selector**         | Trivial    | Process | React upstream        | Propose to React team |
 
 Options A and B are complementary. A is the surgical fix that unblocks shipping. B is the architectural fix that eliminates the redundant code path. Together they provide both immediate relief and long-term correctness.
